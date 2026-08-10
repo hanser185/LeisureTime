@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Frontend build output
+dist/
+
+# Rust build artifacts
+**/src-tauri/target/
+
+# Local project data / agent memory (privacy)
+.workbuddy/
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log

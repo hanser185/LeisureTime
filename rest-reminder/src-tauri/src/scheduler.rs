@@ -1,0 +1,63 @@
+use crate::commands::{open_rest_window, open_water_window};
+use crate::state::{now_ms, Store, UserState};
+use crate::storage;
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter};
+
+/// 启动调度循环：每秒检查阈值，触发休息/喝水提醒
+pub fn run_scheduler(app: AppHandle, store: Arc<Store>) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let now = now_ms();
+
+        let mut s = match store.0.lock() {
+            Ok(g) => g,
+            Err(_) => continue,
+        };
+        // 跨日归档
+        if let Some(old) = s.tick(now) {
+            storage::save_daily(&old);
+        }
+        if s.settings.paused {
+            continue;
+        }
+
+        let work_th = s.settings.work_threshold_min * 60_000;
+        let reached = s.current_segment_ms(now) >= work_th;
+        let in_work = s.user_state == UserState::Working;
+        let not_snoozed = now >= s.snooze_until_ms;
+
+        // 休息提醒：连续工作达阈值且本片段未提醒、未处于稍后期
+        if in_work && reached && !s.rest_fired_for_segment && not_snoozed {
+            s.rest_fired_for_segment = true;
+            s.daily.rest_reminders += 1;
+            s.water_deferred = true;
+            let min = s.settings.work_threshold_min;
+            drop(s);
+            let _ = app.emit("rest_reminder", serde_json::json!({ "worked_min": min }));
+            open_rest_window(&app, min);
+            continue;
+        }
+
+        // 喝水提醒：开启且活跃，且距上次提示超过间隔；休息提醒在场时让位
+        if s.settings.water_enabled
+            && in_work
+            && !s.water_deferred
+            && now - s.daily.last_water_prompt_ms >= s.settings.water_interval_min * 60_000
+        {
+            s.daily.last_water_prompt_ms = now;
+            drop(s);
+            let _ = app.emit("water_reminder", ());
+            open_water_window(&app);
+            continue;
+        }
+
+        // 周期落盘（每 30s），防止异常退出丢数据
+        if now - s.last_save_ms >= 30_000 {
+            s.last_save_ms = now;
+            let d = s.daily.clone();
+            drop(s);
+            storage::save_daily(&d);
+        }
+    });
+}

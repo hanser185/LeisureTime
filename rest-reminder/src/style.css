@@ -1,0 +1,69 @@
+:root {
+  --bg: #f4f7f8;
+  --card: #ffffff;
+  --text: #1f2933;
+  --muted: #7b8794;
+  --accent: #2dd4bf;
+  --accent-d: #14b8a6;
+  --work: #3b82f6;
+  --rest: #34d399;
+  --warn: #f97316;
+  --danger: #ef4444;
+  --border: #e4e9ec;
+  --shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+}
+[data-theme='dark'] {
+  --bg: #111827;
+  --card: #1f2933;
+  --text: #e5e7eb;
+  --muted: #9aa5b1;
+  --border: #2d3748;
+  --shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+html,
+body,
+#app {
+  height: 100%;
+}
+body {
+  font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 14px;
+  transition: 0.15s;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #063;
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background: var(--accent-d);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover {
+  color: var(--text);
+}
+.card {
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
