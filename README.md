@@ -40,7 +40,8 @@ npm run tauri build
 ## 目录结构
 
 ```
-rest-reminder/
+.
+├── doc/                      # 设计文档（PRD/技术选型/结构/模块/UI-UX/代码骨架/打包/测试）
 ├── src/                     # Vue 3 前端
 │   ├── components/          # Dashboard / SettingsPanel / RestPopup / WaterCard / PrivacyNotice / WeeklyChart
 │   ├── stores/appStore.ts   # Pinia 状态管理与 Tauri 命令桥接
@@ -62,7 +63,9 @@ rest-reminder/
 │   └── tauri.conf.json
 ├── scripts/make_icon.py     # 纯 Python 生成图标（无需额外工具）
 ├── package.json
-└── vite.config.ts
+├── vite.config.ts
+├── tsconfig.json
+└── README.md
 ```
 
 ## 验证状态
