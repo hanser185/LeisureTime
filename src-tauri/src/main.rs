@@ -7,7 +7,7 @@ mod state;
 mod storage;
 mod tray;
 
-use state::{Store, Settings};
+use state::{Settings, Store};
 use std::sync::Arc;
 
 fn main() {

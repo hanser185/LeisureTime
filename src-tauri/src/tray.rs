@@ -18,8 +18,11 @@ pub fn build_tray(app: &App) -> tauri::Result<()> {
             "toggle" => {
                 let paused = commands::do_toggle_pause(app);
                 if let Some(tray) = app.tray_by_id("main-tray") {
-                    let _ = tray
-                        .set_tooltip(Some(if paused { "休息提醒助手（已暂停）" } else { "休息提醒助手" }));
+                    let _ = tray.set_tooltip(Some(if paused {
+                        "休息提醒助手（已暂停）"
+                    } else {
+                        "休息提醒助手"
+                    }));
                 }
             }
             "settings" => {

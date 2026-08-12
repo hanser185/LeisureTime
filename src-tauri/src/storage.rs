@@ -35,8 +35,10 @@ pub fn save_settings(s: &Settings) {
 pub fn load_daily(date: &str) -> DailyData {
     let p = daily_dir().join(format!("{}.json", date));
     match fs::read_to_string(p) {
-        Ok(s) => serde_json::from_str(&s)
-            .unwrap_or_else(|_| DailyData { date: date.into(), ..Default::default() }),
+        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|_| DailyData {
+            date: date.into(),
+            ..Default::default()
+        }),
         Err(_) => DailyData {
             date: date.into(),
             ..Default::default()

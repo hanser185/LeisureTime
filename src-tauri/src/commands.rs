@@ -37,9 +37,7 @@ fn rest_url(min: u64, mode: &str) -> WebviewUrl {
             tauri::Url::parse(&format!("http://localhost:5173/#/rest{}", q)).unwrap(),
         )
     } else {
-        WebviewUrl::External(
-            tauri::Url::parse(&format!("tauri://localhost/#/rest{}", q)).unwrap(),
-        )
+        WebviewUrl::External(tauri::Url::parse(&format!("tauri://localhost/#/rest{}", q)).unwrap())
     }
 }
 fn water_url() -> WebviewUrl {
@@ -149,8 +147,18 @@ pub fn get_weekly(_app: AppHandle) -> Vec<serde_json::Value> {
         let d = today - Duration::days(i);
         let s = d.format("%Y-%m-%d").to_string();
         let daily = storage::load_daily(&s);
-        let work_min: u64 = daily.work_segments.iter().map(|x| x.duration_sec).sum::<u64>() / 60;
-        let rest_min: u64 = daily.rest_segments.iter().map(|x| x.duration_sec).sum::<u64>() / 60;
+        let work_min: u64 = daily
+            .work_segments
+            .iter()
+            .map(|x| x.duration_sec)
+            .sum::<u64>()
+            / 60;
+        let rest_min: u64 = daily
+            .rest_segments
+            .iter()
+            .map(|x| x.duration_sec)
+            .sum::<u64>()
+            / 60;
         out.push(serde_json::json!({
             "date": s,
             "work_min": work_min,
