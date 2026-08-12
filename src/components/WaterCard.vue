@@ -1,17 +1,35 @@
 <script setup lang="ts">
-import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../stores/appStore'
 
 const store = useAppStore()
 
-async function drank() {
-  await store.recordWater()
-  await getCurrentWindow().close()
+// 关闭弹窗：先尽力上报状态（失败不影响关闭），再关闭窗口；close 失败则强制 destroy 兜底
+async function closeWindow() {
+  try {
+    await getCurrentWindow().close()
+  } catch (e) {
+    console.error('[WaterCard] close 失败，尝试 destroy', e)
+    try {
+      await getCurrentWindow().destroy()
+    } catch (e2) {
+      console.error('[WaterCard] destroy 也失败', e2)
+    }
+  }
 }
+
+async function drank() {
+  try {
+    await store.recordWater()
+  } catch (e) {
+    console.warn('[WaterCard] 记录喝水失败，仍关闭弹窗', e)
+  }
+  await closeWindow()
+}
+
 async function later() {
-  // 关闭即可，调度器会在下一次间隔到达时再次提醒
-  await getCurrentWindow().close()
+  // 仅关闭窗口，调度器会在下一次间隔到达时再次提醒
+  await closeWindow()
 }
 </script>
 
