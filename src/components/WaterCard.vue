@@ -1,12 +1,16 @@
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../stores/appStore'
 
 const store = useAppStore()
+const remain = ref(20)
+let timer: number
 
 // 关闭弹窗：先尽力上报状态（失败不影响关闭），再关闭窗口；close 失败则强制 destroy 兜底
 async function closeWindow() {
+  window.clearInterval(timer)
   try {
     await getCurrentWindow().close()
   } catch (e) {
@@ -37,6 +41,15 @@ async function later() {
   }
   await closeWindow()
 }
+
+onMounted(() => {
+  timer = window.setInterval(() => {
+    remain.value -= 1
+    if (remain.value <= 0) closeWindow()
+  }, 1000)
+})
+
+onUnmounted(() => window.clearInterval(timer))
 </script>
 
 <template>
@@ -44,6 +57,7 @@ async function later() {
     <div class="emoji">💧</div>
     <h2>该喝水啦</h2>
     <p>起身接杯水，给身体补点水分～</p>
+    <div class="cd">{{ remain }} 秒后自动关闭</div>
     <div class="btns">
       <button class="btn-primary" @click="drank">已喝水</button>
       <button class="btn-ghost" @click="later">稍后</button>
@@ -77,6 +91,10 @@ h2 {
 p {
   font-size: 13px;
   opacity: 0.85;
+}
+.cd {
+  font-size: 12px;
+  opacity: 0.7;
 }
 .btns {
   display: flex;

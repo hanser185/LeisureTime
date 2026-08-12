@@ -78,6 +78,8 @@ pub struct AppState {
     pub current_date: String,
     pub water_deferred: bool, // 休息提醒在场时，喝水提醒延后
     pub last_save_ms: u64,
+    pub last_rest_prompt_ms: u64, // 上次休息提醒时刻，用于按工作阈值循环再提醒（修复“只弹一次”）
+    pub pause_start_ms: u64, // 暂停起点；恢复时把时间锚点前移，避免暂停被算作无活动（修复“暂停误判休息”）
 }
 
 impl AppState {
@@ -99,6 +101,8 @@ impl AppState {
             current_date: date,
             water_deferred: false,
             last_save_ms: now,
+            last_rest_prompt_ms: now,
+            pause_start_ms: 0,
         }
     }
 
@@ -121,6 +125,29 @@ impl AppState {
             UserState::Working => {}
         }
         self.daily.last_activity_ms = now;
+    }
+
+    /// 切换暂停态。
+    /// 暂停时只记录起点；恢复时把所有时间锚点（活动/工作片段/休息片段/喝水提醒/休息提醒/稍后）
+    /// 前移暂停时长，使暂停期间不被计为“无活动”而误判为休息（Bug2）。
+    pub fn set_paused(&mut self, paused: bool, now: u64) {
+        if paused {
+            self.pause_start_ms = now;
+        } else if self.pause_start_ms > 0 {
+            let delta = now.saturating_sub(self.pause_start_ms);
+            self.daily.last_activity_ms = self.daily.last_activity_ms.saturating_add(delta);
+            self.daily.last_water_prompt_ms = self.daily.last_water_prompt_ms.saturating_add(delta);
+            self.last_rest_prompt_ms = self.last_rest_prompt_ms.saturating_add(delta);
+            if self.segment_start_ms > 0 {
+                self.segment_start_ms = self.segment_start_ms.saturating_add(delta);
+            }
+            if self.rest_segment_start_ms > 0 {
+                self.rest_segment_start_ms = self.rest_segment_start_ms.saturating_add(delta);
+            }
+            self.snooze_until_ms = self.snooze_until_ms.saturating_add(delta);
+            self.pause_start_ms = 0;
+        }
+        self.settings.paused = paused;
     }
 
     /// 每秒 tick：推进状态机；跨日返回需保存的旧日数据
@@ -147,6 +174,8 @@ impl AppState {
             self.snooze_until_ms = 0;
             self.water_deferred = false;
             self.last_save_ms = now;
+            self.last_rest_prompt_ms = now;
+            self.pause_start_ms = 0;
             return Some(old);
         }
 
@@ -159,7 +188,8 @@ impl AppState {
                     self.close_work_segment(now);
                     self.user_state = UserState::Resting;
                     self.rest_segment_start_ms = now;
-                    self.daily.rest_count += 1;
+                    // 注：休息次数仅在“弹出休息提醒”时由 scheduler 累加，
+                    // 此处被动转入休息不再计数，避免与提醒重复累加（修复“休息次数恒为 0”）
                 }
             }
             UserState::Resting => {
@@ -237,6 +267,33 @@ impl AppState {
     /// 休息弹窗关闭时复位：解除“喝水提醒让位”标记（Bug1 复位核心，main.rs 窗口事件调用）
     pub fn reset_water_defer(&mut self) {
         self.water_deferred = false;
+    }
+
+    /// 按工作阈值循环再提醒：距上次休息提醒已过去一个完整工作阈值，即解除本片段的提醒抑制，
+    /// 使连续长时间工作能多次收到提醒（修复“休息提醒只弹一次”）。
+    pub fn rearm_rest_if_due(&mut self, now: u64, work_th: u64) {
+        if self.rest_fired_for_segment && now.saturating_sub(self.last_rest_prompt_ms) >= work_th {
+            self.rest_fired_for_segment = false;
+        }
+    }
+
+    /// 清空今日数据并复位在途状态；否则旧工作片段会被下次归档“复活”进空日（Bug3）。
+    pub fn reset_daily_and_tracking(&mut self, now: u64) {
+        self.daily = DailyData {
+            date: self.current_date.clone(),
+            ..Default::default()
+        };
+        self.daily.last_activity_ms = now;
+        self.daily.last_water_prompt_ms = now;
+        self.user_state = UserState::Idle;
+        self.segment_start_ms = 0;
+        self.rest_segment_start_ms = 0;
+        self.rest_fired_for_segment = false;
+        self.snooze_until_ms = 0;
+        self.water_deferred = false;
+        self.last_rest_prompt_ms = now;
+        self.pause_start_ms = 0;
+        self.last_save_ms = now;
     }
 }
 
@@ -326,6 +383,8 @@ mod tests {
             current_date: today_string(),
             water_deferred: false,
             last_save_ms: 0,
+            last_rest_prompt_ms: 0,
+            pause_start_ms: 0,
         }
     }
 
@@ -467,5 +526,77 @@ mod tests {
         s.water_deferred = true;
         s.reset_water_defer();
         assert!(!s.water_deferred);
+    }
+
+    // ===== 本次修复的回归测试 =====
+
+    fn make_working_state() -> AppState {
+        let mut s = make_state();
+        s.user_state = UserState::Working;
+        s.segment_start_ms = 1000;
+        s.daily.last_activity_ms = 1000;
+        s
+    }
+
+    #[test]
+    fn set_paused_shifts_anchors_on_resume() {
+        // Bug2：暂停期间不能更新活动锚点；恢复时把包括暂停时长的所有锚点前移，
+        // 否则恢复瞬间 since 含暂停时长，跨过休息阈值会误判为“休息”并污染统计。
+        let mut s = make_working_state();
+        s.set_paused(true, 1000);
+        // 暂停 10 分钟
+        s.set_paused(false, 1000 + 10 * 60_000);
+        // 活动锚点应前移 10 分钟
+        assert_eq!(s.daily.last_activity_ms, 1000 + 10 * 60_000);
+        assert_eq!(s.segment_start_ms, 1000 + 10 * 60_000);
+        // 恢复后仅 1s 就 tick，不应因暂停时长误判为休息
+        let old = s.tick(1000 + 10 * 60_000 + 1_000);
+        assert!(old.is_none());
+        assert_eq!(s.user_state, UserState::Working);
+    }
+
+    #[test]
+    fn reset_daily_and_tracking_clears_inflight() {
+        // Bug3：清空今日必须一并复位在途状态，否则旧工作片段会被下次归档“复活”进空日
+        let mut s = make_state();
+        s.user_state = UserState::Working;
+        s.segment_start_ms = 5000;
+        s.rest_segment_start_ms = 4000;
+        s.rest_fired_for_segment = true;
+        s.water_deferred = true;
+        s.snooze_until_ms = 999;
+        let now = 1_000_000;
+        s.reset_daily_and_tracking(now);
+        assert_eq!(s.user_state, UserState::Idle);
+        assert_eq!(s.segment_start_ms, 0);
+        assert_eq!(s.rest_segment_start_ms, 0);
+        assert!(!s.rest_fired_for_segment);
+        assert!(!s.water_deferred);
+        assert_eq!(s.snooze_until_ms, 0);
+        assert_eq!(s.daily.rest_count, 0);
+        assert_eq!(s.daily.work_segments.len(), 0);
+        assert_eq!(s.daily.last_activity_ms, now);
+    }
+
+    #[test]
+    fn rearm_rest_if_due_releases_after_threshold() {
+        // Bug1（修复“只弹一次”）：距上次提醒达一个工作阈值后解除抑制，以便连续工作可再次提醒
+        let mut s = make_state();
+        s.rest_fired_for_segment = true;
+        s.last_rest_prompt_ms = 1_000_000;
+        let work_th = 60 * 60_000;
+        s.rearm_rest_if_due(1_000_000 + work_th - 1, work_th); // 差 1ms
+        assert!(s.rest_fired_for_segment, "未达阈值应保持抑制");
+        s.rearm_rest_if_due(1_000_000 + work_th, work_th); // 恰好阈值
+        assert!(!s.rest_fired_for_segment, "达阈值应解除抑制以便再次提醒");
+    }
+
+    #[test]
+    fn tick_passive_rest_does_not_increment_rest_count() {
+        // Bug4：被动转入休息（idle 检测）不应计数，休息次数仅由“弹出提醒”累加，避免重复
+        let mut s = make_working_state();
+        s.tick(1000 + 11 * 60_000); // 超过 10 分钟无活动，转入 Resting
+        assert_eq!(s.user_state, UserState::Resting);
+        assert_eq!(s.daily.rest_count, 0, "被动转入休息不应计数");
     }
 }

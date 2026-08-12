@@ -2,7 +2,7 @@ use crate::commands::{open_rest_window, open_water_window};
 use crate::state::{now_ms, Store, UserState};
 use crate::storage;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 /// 启动调度循环：每秒检查阈值，触发休息/喝水提醒
 pub fn run_scheduler(app: AppHandle, store: Arc<Store>) {
@@ -28,14 +28,19 @@ pub fn run_scheduler(app: AppHandle, store: Arc<Store>) {
         let not_snoozed = now >= s.snooze_until_ms;
         let in_wh = s.in_work_hours();
 
+        // 按工作阈值循环再提醒：距上次提醒已过去一个完整阈值，解除本片段抑制，
+        // 使连续长时间工作可多次提醒（修复“休息提醒只弹一次”）
+        s.rearm_rest_if_due(now, work_th);
+
         // 休息提醒：连续工作达阈值且本片段未提醒、未处于稍后期、且处于工作时段
         if in_work && reached && !s.rest_fired_for_segment && not_snoozed && in_wh {
             s.rest_fired_for_segment = true;
             s.daily.rest_reminders += 1;
+            s.daily.rest_count += 1; // 每次弹出休息提醒计为一次休息（修复“休息次数恒为 0”）
+            s.last_rest_prompt_ms = now;
             s.water_deferred = true;
             let min = s.settings.work_threshold_min;
             drop(s);
-            let _ = app.emit("rest_reminder", serde_json::json!({ "worked_min": min }));
             open_rest_window(&app, min);
             continue;
         }
@@ -45,17 +50,17 @@ pub fn run_scheduler(app: AppHandle, store: Arc<Store>) {
             && in_work
             && !s.water_deferred
             && in_wh
-            && now - s.daily.last_water_prompt_ms >= s.settings.water_interval_min * 60_000
+            && now.saturating_sub(s.daily.last_water_prompt_ms)
+                >= s.settings.water_interval_min * 60_000
         {
             s.daily.last_water_prompt_ms = now;
             drop(s);
-            let _ = app.emit("water_reminder", ());
             open_water_window(&app);
             continue;
         }
 
         // 周期落盘（每 30s），防止异常退出丢数据
-        if now - s.last_save_ms >= 30_000 {
+        if now.saturating_sub(s.last_save_ms) >= 30_000 {
             s.last_save_ms = now;
             let d = s.daily.clone();
             drop(s);

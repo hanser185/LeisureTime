@@ -109,7 +109,8 @@ pub fn do_toggle_pause(app: &AppHandle) -> bool {
     // ponytail: 锁内只改状态，落盘放锁外
     let settings = {
         let mut s = store.0.lock().unwrap();
-        s.settings.paused = !s.settings.paused;
+        let paused = !s.settings.paused;
+        s.set_paused(paused, now_ms());
         s.settings.clone()
     };
     storage::save_settings(&settings);
@@ -178,6 +179,7 @@ pub fn skip_rest(app: AppHandle) {
     let store = app.state::<Arc<Store>>();
     let mut s = store.0.lock().unwrap();
     s.rest_fired_for_segment = true;
+    s.last_rest_prompt_ms = now_ms(); // 推迟下一轮提醒一个完整工作阈值，避免“跳过”后立刻再弹
     s.water_deferred = false;
 }
 
@@ -189,6 +191,7 @@ pub fn snooze_rest(app: AppHandle, minutes: u64) {
     let now = now_ms();
     s.segment_start_ms = now;
     s.rest_fired_for_segment = false;
+    s.last_rest_prompt_ms = now;
     s.snooze_until_ms = now + minutes * 60_000;
     s.water_deferred = false;
 }
@@ -225,10 +228,7 @@ pub fn clear_today(app: AppHandle) {
     let date = {
         let mut s = store.0.lock().unwrap();
         let date = s.current_date.clone();
-        s.daily = DailyData {
-            date: date.clone(),
-            ..Default::default()
-        };
+        s.reset_daily_and_tracking(now_ms());
         date
     };
     storage::clear_daily(&date);
