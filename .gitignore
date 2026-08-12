@@ -6,6 +6,8 @@ dist/
 
 # Rust build artifacts
 **/src-tauri/target/
+# Tauri 编译期自动生成的 schema（每次 build 重新生成）
+src-tauri/gen/schemas/
 
 # Local project data / agent memory (privacy)
 .workbuddy/

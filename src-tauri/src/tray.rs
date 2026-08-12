@@ -1,7 +1,7 @@
 use crate::commands;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
-use tauri::{App, Manager};
+use tauri::App;
 
 /// 构建系统托盘与右键菜单
 pub fn build_tray(app: &App) -> tauri::Result<()> {
@@ -19,7 +19,7 @@ pub fn build_tray(app: &App) -> tauri::Result<()> {
                 let paused = commands::do_toggle_pause(app);
                 if let Some(tray) = app.tray_by_id("main-tray") {
                     let _ = tray
-                        .set_tooltip(if paused { "休息提醒助手（已暂停）" } else { "休息提醒助手" });
+                        .set_tooltip(Some(if paused { "休息提醒助手（已暂停）" } else { "休息提醒助手" }));
                 }
             }
             "settings" => {

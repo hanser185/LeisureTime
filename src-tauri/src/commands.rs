@@ -124,7 +124,7 @@ pub fn get_daily(app: AppHandle) -> DailyData {
 }
 
 #[tauri::command]
-pub fn get_weekly(app: AppHandle) -> Vec<serde_json::Value> {
+pub fn get_weekly(_app: AppHandle) -> Vec<serde_json::Value> {
     use chrono::{Duration, Local};
     let today = Local::now().date_naive();
     let mut out = Vec::new();
@@ -197,7 +197,8 @@ pub fn data_path() -> String {
 /// 实时状态（前端每秒轮询，用于“当前状态标识”与计时显示）
 #[tauri::command]
 pub fn get_status(app: AppHandle) -> serde_json::Value {
-    let s = app.state::<Arc<Store>>().0.lock().unwrap();
+    let store = app.state::<Arc<Store>>();
+    let s = store.0.lock().unwrap();
     let state = match s.user_state {
         UserState::Idle => "idle",
         UserState::Working => "working",

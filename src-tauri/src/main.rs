@@ -9,7 +9,6 @@ mod tray;
 
 use state::{Store, Settings};
 use std::sync::Arc;
-use tauri::Manager;
 
 fn main() {
     let settings: Settings = storage::load_settings();
