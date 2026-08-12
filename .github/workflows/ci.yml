@@ -43,10 +43,13 @@ jobs:
         run: npm run build
 
       - name: Rust format check
+        working-directory: src-tauri
         run: cargo fmt --all -- --check
 
       - name: Clippy (warnings as errors)
+        working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Test
+        working-directory: src-tauri
         run: cargo test
