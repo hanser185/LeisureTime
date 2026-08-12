@@ -53,8 +53,9 @@ fn water_url() -> WebviewUrl {
 /// 打开/聚焦休息提醒窗口（带已工作分钟数）
 /// reminder_mode=fullscreen 时创建覆盖全屏的遮罩窗口；否则为居中小窗。
 pub fn open_rest_window(app: &AppHandle, min: u64) {
+    let store = app.state::<Arc<Store>>();
     let mode = {
-        let s = app.state::<Arc<Store>>().0.lock().unwrap();
+        let s = store.0.lock().unwrap();
         s.settings.reminder_mode.clone()
     };
     if let Some(w) = app.get_webview_window("rest") {
