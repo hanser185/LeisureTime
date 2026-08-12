@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../stores/appStore'
 import Dashboard from '../components/Dashboard.vue'
 import SettingsPanel from '../components/SettingsPanel.vue'
@@ -13,13 +12,6 @@ onMounted(async () => {
   await store.init()
   if (!store.privacyAck) showPrivacy.value = true
 })
-
-async function minimize() {
-  await getCurrentWindow().minimize()
-}
-async function closeToTray() {
-  await getCurrentWindow().hide()
-}
 </script>
 
 <template>
@@ -33,8 +25,6 @@ async function closeToTray() {
         <button class="icon" title="暂停/恢复" @click="store.togglePause()">
           {{ store.status.paused ? '▶' : '⏸' }}
         </button>
-        <button class="icon" title="最小化" @click="minimize">—</button>
-        <button class="icon" title="关闭（最小化到托盘）" @click="closeToTray">✕</button>
       </div>
     </header>
 
