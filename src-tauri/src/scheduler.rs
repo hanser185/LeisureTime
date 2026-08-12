@@ -26,9 +26,10 @@ pub fn run_scheduler(app: AppHandle, store: Arc<Store>) {
         let reached = s.current_segment_ms(now) >= work_th;
         let in_work = s.user_state == UserState::Working;
         let not_snoozed = now >= s.snooze_until_ms;
+        let in_wh = s.in_work_hours();
 
-        // 休息提醒：连续工作达阈值且本片段未提醒、未处于稍后期
-        if in_work && reached && !s.rest_fired_for_segment && not_snoozed {
+        // 休息提醒：连续工作达阈值且本片段未提醒、未处于稍后期、且处于工作时段
+        if in_work && reached && !s.rest_fired_for_segment && not_snoozed && in_wh {
             s.rest_fired_for_segment = true;
             s.daily.rest_reminders += 1;
             s.water_deferred = true;
@@ -39,10 +40,11 @@ pub fn run_scheduler(app: AppHandle, store: Arc<Store>) {
             continue;
         }
 
-        // 喝水提醒：开启且活跃，且距上次提示超过间隔；休息提醒在场时让位
+        // 喝水提醒：开启且活跃，且距上次提示超过间隔；休息提醒在场时让位；且处于工作时段
         if s.settings.water_enabled
             && in_work
             && !s.water_deferred
+            && in_wh
             && now - s.daily.last_water_prompt_ms >= s.settings.water_interval_min * 60_000
         {
             s.daily.last_water_prompt_ms = now;

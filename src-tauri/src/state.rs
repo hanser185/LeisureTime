@@ -245,3 +245,39 @@ pub fn today_string() -> String {
 pub fn now_hm() -> String {
     chrono::Local::now().format("%H:%M").to_string()
 }
+
+/// 将 "HH:MM" 解析为当天分钟数（0–1439），非法返回 None
+fn parse_hm(s: &str) -> Option<u16> {
+    let mut it = s.split(':');
+    let h: u16 = it.next()?.parse().ok()?;
+    let m: u16 = it.next()?.parse().ok()?;
+    if h < 24 && m < 60 {
+        Some(h * 60 + m)
+    } else {
+        None
+    }
+}
+
+impl AppState {
+    /// 当前是否处于“工作时段”。
+    /// - work_hours_only 关闭时恒为 true（不限时段）；
+    /// - 开启时按 work_start/work_end 判断，支持跨午夜（如 22:00–06:00）；
+    /// - 时段解析失败时退化为 true，避免因配置异常而永久静默。
+    pub fn in_work_hours(&self) -> bool {
+        if !self.settings.work_hours_only {
+            return true;
+        }
+        let now = chrono::Local::now();
+        let cur = (now.hour() * 60 + now.minute()) as u16;
+        match (parse_hm(&self.settings.work_start), parse_hm(&self.settings.work_end)) {
+            (Some(s), Some(e)) => {
+                if s <= e {
+                    cur >= s && cur <= e
+                } else {
+                    cur >= s || cur <= e
+                }
+            }
+            _ => true,
+        }
+    }
+}
