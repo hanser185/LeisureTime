@@ -194,7 +194,17 @@ pub fn record_water(app: AppHandle) {
     let store = app.state::<Arc<Store>>();
     let mut s = store.0.lock().unwrap();
     s.daily.water_intakes.push(now_hm());
+    // 以实际喝水时间为下一轮喝水提醒的起点，避免间隔从“弹窗时刻”而非“喝水时刻”起算
+    s.daily.last_water_prompt_ms = now_ms();
     storage::save_daily(&s.daily);
+}
+
+/// 用户点“稍后”：推迟下次喝水提醒一整个间隔，避免关闭弹窗后 1 秒内立即重复弹出
+#[tauri::command]
+pub fn defer_water(app: AppHandle) {
+    let store = app.state::<Arc<Store>>();
+    let mut s = store.0.lock().unwrap();
+    s.daily.last_water_prompt_ms = now_ms();
 }
 
 #[tauri::command]

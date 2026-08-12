@@ -9,6 +9,7 @@ mod tray;
 
 use state::{Settings, Store};
 use std::sync::Arc;
+use tauri::Manager;
 
 fn main() {
     let settings: Settings = storage::load_settings();
@@ -39,6 +40,7 @@ fn main() {
             commands::skip_rest,
             commands::snooze_rest,
             commands::record_water,
+            commands::defer_water,
             commands::toggle_pause,
             commands::clear_today,
             commands::data_path,
@@ -51,6 +53,13 @@ fn main() {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
+                }
+            }
+            // 休息弹窗无论以何种方式关闭（手动跳过/稍后、倒计时自动关闭、点 X），
+            // 都解除“喝水提醒让位”标记，否则当天喝水提醒会永久失效
+            if window.label() == "rest" && matches!(event, tauri::WindowEvent::Destroyed) {
+                if let Ok(mut s) = window.state::<Arc<Store>>().0.lock() {
+                    s.water_deferred = false;
                 }
             }
         })

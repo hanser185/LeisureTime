@@ -82,10 +82,11 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(settings: Settings, mut daily: DailyData, date: String) -> Self {
-        // 启动即视为全新片段：不沿用历史 last_activity_ms 作为起点，
-        // 避免重启后误判“已连续工作很久”而立即弹提醒。
         let now = now_ms();
-        // 初始化喝水提醒基准时间，避免首次工作就立即弹喝水提醒（Bug 2 修复）
+        // 启动即视为全新片段：不沿用历史 last_activity_ms 作为活动起点，
+        // 否则从磁盘读到的旧时间戳会让首个 tick 误判“已连续工作很久”而立即弹休息提醒；
+        // 同时以当前时间为喝水提醒基准，避免首次工作就立即弹喝水提醒。
+        daily.last_activity_ms = now;
         daily.last_water_prompt_ms = now;
         AppState {
             user_state: UserState::Idle,

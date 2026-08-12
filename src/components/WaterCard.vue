@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../stores/appStore'
 
@@ -28,7 +29,12 @@ async function drank() {
 }
 
 async function later() {
-  // 仅关闭窗口，调度器会在下一次间隔到达时再次提醒
+  // 先推迟下次喝水提醒（避免关闭后 1 秒内立即重复弹出），再关闭窗口
+  try {
+    await invoke('defer_water')
+  } catch (e) {
+    console.warn('[WaterCard] 推迟喝水提醒失败', e)
+  }
   await closeWindow()
 }
 </script>
