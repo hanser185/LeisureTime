@@ -1,0 +1,52 @@
+name: CI
+
+# 质量门禁：push / PR 到 main 时自动跑检查。
+# 仅做"检查"（fmt / clippy / test / 前端类型与构建）；
+# 发布包（NSIS/MSI、绿色 EXE）仍在开发者 Windows 机器上出，符合 doc/07 绿色版决策。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri 在 Linux 编译需要 webkit 等系统库（仅编译期依赖，运行时在 Windows 上）
+      - name: Install Tauri system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf build-essential curl wget file libssl-dev pkg-config
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Frontend type-check
+        run: npm run type-check
+
+      - name: Frontend build
+        run: npm run build
+
+      - name: Rust format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (warnings as errors)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
