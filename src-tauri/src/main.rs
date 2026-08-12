@@ -59,7 +59,7 @@ fn main() {
             // 都解除“喝水提醒让位”标记，否则当天喝水提醒会永久失效
             if window.label() == "rest" && matches!(event, tauri::WindowEvent::Destroyed) {
                 if let Ok(mut s) = window.state::<Arc<Store>>().0.lock() {
-                    s.water_deferred = false;
+                    s.reset_water_defer();
                 }
             }
         })

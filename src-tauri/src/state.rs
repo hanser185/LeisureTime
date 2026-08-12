@@ -222,6 +222,22 @@ impl AppState {
             self.close_rest_segment(now);
         }
     }
+
+    /// 记录一次喝水：追加时间并刷新下一轮喝水提醒起点（对应 record_water 命令核心）
+    pub fn record_water(&mut self, hm: String) {
+        self.daily.water_intakes.push(hm);
+        self.daily.last_water_prompt_ms = now_ms();
+    }
+
+    /// 推迟喝水提醒一整个间隔（对应 defer_water 命令核心）
+    pub fn defer_water(&mut self) {
+        self.daily.last_water_prompt_ms = now_ms();
+    }
+
+    /// 休息弹窗关闭时复位：解除“喝水提醒让位”标记（Bug1 复位核心，main.rs 窗口事件调用）
+    pub fn reset_water_defer(&mut self) {
+        self.water_deferred = false;
+    }
 }
 
 /// 供 Tauri 托管的包装
@@ -409,5 +425,47 @@ mod tests {
         // 解析失败时退化为 true（不限时段），避免永久静默
         assert!(in_work_hours_at(true, "bad", "18:00", 720));
         assert!(in_work_hours_at(true, "09:00", "bad", 720));
+    }
+
+    // ===== 回归测试：本次修复的状态逻辑 =====
+
+    #[test]
+    fn new_resets_activity_and_water_baseline() {
+        // Bug3：启动不沿用历史 last_activity_ms / last_water_prompt_ms，
+        // 否则可能误判“已连续工作很久”立即弹休息，或首次工作就弹喝水
+        let s = AppState::new(Settings::default(), DailyData::default(), today_string());
+        assert!(s.daily.last_activity_ms > 0, "启动应重置活动起点");
+        assert!(s.daily.last_water_prompt_ms > 0, "启动应重置喝水提醒基准");
+        assert!(!s.water_deferred);
+    }
+
+    #[test]
+    fn record_water_resets_prompt_and_pushes() {
+        // Bug2：记录喝水应追加时间点，并刷新下一轮提醒起点（不从“弹窗时刻”起算）
+        let mut s = make_state();
+        s.daily.last_water_prompt_ms = 1000; // 旧基准
+        s.record_water("12:34".into());
+        assert_eq!(
+            s.daily.water_intakes.last().map(|x| x.as_str()),
+            Some("12:34")
+        );
+        assert!(s.daily.last_water_prompt_ms > 1000, "喝水后提醒起点应刷新");
+    }
+
+    #[test]
+    fn defer_water_resets_prompt() {
+        let mut s = make_state();
+        s.daily.last_water_prompt_ms = 0;
+        s.defer_water();
+        assert!(s.daily.last_water_prompt_ms > 0);
+    }
+
+    #[test]
+    fn reset_water_defer_clears_flag() {
+        // Bug1：休息弹窗关闭后 water_deferred 必须复位，否则当天喝水提醒永久失效
+        let mut s = make_state();
+        s.water_deferred = true;
+        s.reset_water_defer();
+        assert!(!s.water_deferred);
     }
 }

@@ -199,9 +199,7 @@ pub fn record_water(app: AppHandle) {
     // ponytail: 锁内只改状态并 clone，落盘放锁外，避免阻塞调度/活动线程
     let daily = {
         let mut s = store.0.lock().unwrap();
-        s.daily.water_intakes.push(now_hm());
-        // 以实际喝水时间为下一轮喝水提醒的起点，避免间隔从“弹窗时刻”而非“喝水时刻”起算
-        s.daily.last_water_prompt_ms = now_ms();
+        s.record_water(now_hm());
         s.daily.clone()
     };
     storage::save_daily(&daily);
@@ -212,7 +210,7 @@ pub fn record_water(app: AppHandle) {
 pub fn defer_water(app: AppHandle) {
     let store = app.state::<Arc<Store>>();
     let mut s = store.0.lock().unwrap();
-    s.daily.last_water_prompt_ms = now_ms();
+    s.defer_water();
 }
 
 #[tauri::command]
