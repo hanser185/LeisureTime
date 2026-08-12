@@ -13,6 +13,7 @@ pub fn build_tray(app: &App) -> tauri::Result<()> {
     TrayIconBuilder::with_id("main-tray")
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
+        .show_menu_on_left_click(false)
         .tooltip("休息提醒助手")
         .on_menu_event(|app, event| match event.id().as_ref() {
             "toggle" => {
