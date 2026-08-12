@@ -11,16 +11,33 @@ const isFull = params.get('mode') === 'fullscreen'
 const remain = ref(20)
 let timer: number
 
-async function close(auto: boolean) {
+// 关闭弹窗：先尽力上报状态（失败不影响关闭），再关闭窗口；close 失败则强制 destroy 兜底
+async function dismiss(auto: boolean, snoozeMin = 0) {
   window.clearInterval(timer)
-  if (!auto) await store.skip()
-  await getCurrentWindow().close()
+  if (!auto) {
+    try {
+      if (snoozeMin > 0) await store.snooze(snoozeMin)
+      else await store.skip()
+    } catch (e) {
+      console.warn('[RestPopup] 状态上报失败，仍关闭弹窗', e)
+    }
+  }
+  try {
+    await getCurrentWindow().close()
+  } catch (e) {
+    console.error('[RestPopup] close 失败，尝试 destroy', e)
+    try {
+      await getCurrentWindow().destroy()
+    } catch (e2) {
+      console.error('[RestPopup] destroy 也失败', e2)
+    }
+  }
 }
 
 onMounted(() => {
   timer = window.setInterval(() => {
     remain.value -= 1
-    if (remain.value <= 0) close(true)
+    if (remain.value <= 0) dismiss(true)
   }, 1000)
 })
 </script>
@@ -32,13 +49,9 @@ onMounted(() => {
     <p>你已经连续工作了 <b>{{ workedMin }}</b> 分钟，起来走走、看看远处吧～</p>
     <div class="cd">{{ remain }} 秒后自动关闭</div>
     <div class="btns">
-      <button class="btn-ghost" @click="store.snooze(5).then(() => getCurrentWindow().close())">
-        稍后 5 分钟
-      </button>
-      <button class="btn-ghost" @click="store.snooze(10).then(() => getCurrentWindow().close())">
-        稍后 10 分钟
-      </button>
-      <button class="btn-primary" @click="close(false)">跳过本次</button>
+      <button class="btn-ghost" @click="dismiss(false, 5)">稍后 5 分钟</button>
+      <button class="btn-ghost" @click="dismiss(false, 10)">稍后 10 分钟</button>
+      <button class="btn-primary" @click="dismiss(false, 0)">跳过本次</button>
     </div>
   </div>
 </template>
