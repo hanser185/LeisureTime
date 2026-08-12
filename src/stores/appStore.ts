@@ -3,6 +3,12 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type { DailyData, Settings, Status, WeekDay } from '../types'
 
+// ponytail: 模块级句柄——init 幂等且可彻底回收，避免 HMR/重复挂载叠加轮询与事件监听
+let navOff: (() => void) | null = null
+let timers: number[] = []
+let initialized = false
+let initSeq = 0 // 代际令牌：dispose 时自增，使在途的异步 init 失效，杜绝重复注册
+
 export const useAppStore = defineStore('app', {
   state: () => ({
     settings: null as Settings | null,
@@ -20,22 +26,44 @@ export const useAppStore = defineStore('app', {
   },
   actions: {
     async init() {
+      if (initialized) return
+      const seq = ++initSeq
+      initialized = true
       this.settings = await invoke('get_settings')
       this.applyTheme()
       this.daily = await invoke('get_daily')
       this.weekly = await invoke('get_weekly')
       this.status = await invoke('get_status')
-      listen('navigate', (e: { payload: unknown }) => {
+      // 异步等待期间若发生 dispose（HMR 卸载），在途 init 应作废，避免重复注册
+      if (seq !== initSeq) return
+      navOff = await listen('navigate', (e: { payload: unknown }) => {
         if (e.payload === 'settings') this.activeTab = 'settings'
       })
-      // 状态每秒轮询；数据每 5 秒轮询
-      setInterval(async () => {
-        this.status = await invoke('get_status')
-      }, 1000)
-      setInterval(async () => {
-        this.daily = await invoke('get_daily')
-        this.weekly = await invoke('get_weekly')
-      }, 5000)
+      if (seq !== initSeq) {
+        navOff?.()
+        navOff = null
+        return
+      }
+      // 状态 1s 轮询；当日数据 5s；周报变动极少，60s 足以，避免每 5s 读 7 个文件
+      timers.push(
+        window.setInterval(async () => {
+          this.status = await invoke('get_status')
+        }, 1000),
+        window.setInterval(async () => {
+          this.daily = await invoke('get_daily')
+        }, 5000),
+        window.setInterval(async () => {
+          this.weekly = await invoke('get_weekly')
+        }, 60_000),
+      )
+    },
+    dispose() {
+      initialized = false
+      initSeq++ // 让任何进行中的 init 失效
+      navOff?.()
+      navOff = null
+      timers.forEach((t) => window.clearInterval(t))
+      timers = []
     },
     async saveSettings(s: Settings) {
       await invoke('save_settings', { settings: s })

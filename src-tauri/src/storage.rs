@@ -28,7 +28,12 @@ pub fn load_settings() -> Settings {
 pub fn save_settings(s: &Settings) {
     let p = data_dir().join("settings.json");
     if let Ok(j) = serde_json::to_string_pretty(s) {
-        let _ = fs::write(p, j);
+        if let Err(e) = fs::write(&p, j) {
+            eprintln!(
+                "[storage] 写入 settings.json 失败（设置可能未保存）: {:?}",
+                e
+            );
+        }
     }
 }
 
@@ -49,7 +54,13 @@ pub fn load_daily(date: &str) -> DailyData {
 pub fn save_daily(d: &DailyData) {
     let p = daily_dir().join(format!("{}.json", d.date));
     if let Ok(j) = serde_json::to_string_pretty(d) {
-        let _ = fs::write(p, j);
+        if let Err(e) = fs::write(&p, j) {
+            eprintln!(
+                "[storage] 写入 {} 失败（当日数据可能未保存）: {:?}",
+                p.display(),
+                e
+            );
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useAppStore } from '../stores/appStore'
 import Dashboard from '../components/Dashboard.vue'
 import SettingsPanel from '../components/SettingsPanel.vue'
@@ -11,6 +11,11 @@ const showPrivacy = ref(false)
 onMounted(async () => {
   await store.init()
   if (!store.privacyAck) showPrivacy.value = true
+})
+
+// 回收定时器与事件监听（HMR / 组件卸载时避免叠加）
+onUnmounted(() => {
+  store.dispose()
 })
 </script>
 

@@ -106,11 +106,14 @@ pub fn goto_settings(app: &AppHandle) {
 
 pub fn do_toggle_pause(app: &AppHandle) -> bool {
     let store = app.state::<Arc<Store>>();
-    let mut s = store.0.lock().unwrap();
-    s.settings.paused = !s.settings.paused;
-    let p = s.settings.paused;
-    storage::save_settings(&s.settings);
-    p
+    // ponytail: 锁内只改状态，落盘放锁外
+    let settings = {
+        let mut s = store.0.lock().unwrap();
+        s.settings.paused = !s.settings.paused;
+        s.settings.clone()
+    };
+    storage::save_settings(&settings);
+    settings.paused
 }
 
 #[tauri::command]
@@ -125,9 +128,10 @@ pub fn save_settings(app: AppHandle, settings: Settings) {
         let mut s = store.0.lock().unwrap();
         let changed = s.settings.autostart != settings.autostart;
         s.settings = settings.clone();
-        storage::save_settings(&settings);
         changed
     };
+    // ponytail: 放锁后再落盘，避免阻塞 1Hz 调度线程与活动监听线程
+    storage::save_settings(&settings);
     if autostart_changed {
         apply_autostart(settings.autostart);
     }
@@ -192,11 +196,15 @@ pub fn snooze_rest(app: AppHandle, minutes: u64) {
 #[tauri::command]
 pub fn record_water(app: AppHandle) {
     let store = app.state::<Arc<Store>>();
-    let mut s = store.0.lock().unwrap();
-    s.daily.water_intakes.push(now_hm());
-    // 以实际喝水时间为下一轮喝水提醒的起点，避免间隔从“弹窗时刻”而非“喝水时刻”起算
-    s.daily.last_water_prompt_ms = now_ms();
-    storage::save_daily(&s.daily);
+    // ponytail: 锁内只改状态并 clone，落盘放锁外，避免阻塞调度/活动线程
+    let daily = {
+        let mut s = store.0.lock().unwrap();
+        s.daily.water_intakes.push(now_hm());
+        // 以实际喝水时间为下一轮喝水提醒的起点，避免间隔从“弹窗时刻”而非“喝水时刻”起算
+        s.daily.last_water_prompt_ms = now_ms();
+        s.daily.clone()
+    };
+    storage::save_daily(&daily);
 }
 
 /// 用户点“稍后”：推迟下次喝水提醒一整个间隔，避免关闭弹窗后 1 秒内立即重复弹出
@@ -215,11 +223,15 @@ pub fn toggle_pause(app: AppHandle) -> bool {
 #[tauri::command]
 pub fn clear_today(app: AppHandle) {
     let store = app.state::<Arc<Store>>();
-    let mut s = store.0.lock().unwrap();
-    let date = s.current_date.clone();
-    s.daily = DailyData {
-        date: date.clone(),
-        ..Default::default()
+    // ponytail: 重置状态在锁内完成，删文件放锁外
+    let date = {
+        let mut s = store.0.lock().unwrap();
+        let date = s.current_date.clone();
+        s.daily = DailyData {
+            date: date.clone(),
+            ..Default::default()
+        };
+        date
     };
     storage::clear_daily(&date);
 }
