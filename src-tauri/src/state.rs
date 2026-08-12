@@ -327,7 +327,7 @@ mod tests {
         s.segment_start_ms = 1000;
         s.daily.last_activity_ms = 1000; // 休息阈值默认 10 分钟
         let old = s.tick(1000 + 11 * 60_000); // 超过 10 分钟无活动
-        assert_eq!(old, None);
+        assert!(old.is_none());
         assert_eq!(s.user_state, UserState::Resting);
     }
 
@@ -338,7 +338,7 @@ mod tests {
         s.segment_start_ms = 1000;
         s.daily.last_activity_ms = 1000;
         let old = s.tick(1000 + 5 * 60_000); // 仅 5 分钟
-        assert_eq!(old, None);
+        assert!(old.is_none());
         assert_eq!(s.user_state, UserState::Working);
     }
 

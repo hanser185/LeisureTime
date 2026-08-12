@@ -6,6 +6,8 @@ dist/
 
 # Rust build artifacts
 **/src-tauri/target/
+# 本地隔离验证用目录（cargo clippy --target-dir 临时产物）
+**/src-tauri/target-*/
 # Tauri 编译期自动生成的 schema（每次 build 重新生成）
 src-tauri/gen/schemas/
 
