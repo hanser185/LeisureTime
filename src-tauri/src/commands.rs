@@ -25,14 +25,20 @@ pub fn apply_autostart(enable: bool) {
 pub fn apply_autostart(_enable: bool) {}
 
 /// 根据 dev/prod 环境返回前端路由地址（Tauri 2 的窗口 URL 需为 WebviewUrl）
-fn rest_url(min: u64) -> WebviewUrl {
+/// mode="fullscreen" 时追加 &mode=fullscreen，供前端渲染全屏遮罩样式
+fn rest_url(min: u64, mode: &str) -> WebviewUrl {
+    let q = if mode == "fullscreen" {
+        format!("?min={}&mode=fullscreen", min)
+    } else {
+        format!("?min={}", min)
+    };
     if cfg!(debug_assertions) {
         WebviewUrl::External(
-            tauri::Url::parse(&format!("http://localhost:5173/#/rest?min={}", min)).unwrap(),
+            tauri::Url::parse(&format!("http://localhost:5173/#/rest{}", q)).unwrap(),
         )
     } else {
         WebviewUrl::External(
-            tauri::Url::parse(&format!("tauri://localhost/#/rest?min={}", min)).unwrap(),
+            tauri::Url::parse(&format!("tauri://localhost/#/rest{}", q)).unwrap(),
         )
     }
 }
@@ -45,19 +51,29 @@ fn water_url() -> WebviewUrl {
 }
 
 /// 打开/聚焦休息提醒窗口（带已工作分钟数）
+/// reminder_mode=fullscreen 时创建覆盖全屏的遮罩窗口；否则为居中小窗。
 pub fn open_rest_window(app: &AppHandle, min: u64) {
+    let mode = {
+        let s = app.state::<Arc<Store>>().0.lock().unwrap();
+        s.settings.reminder_mode.clone()
+    };
     if let Some(w) = app.get_webview_window("rest") {
         let _ = w.show();
         let _ = w.set_focus();
         return;
     }
-    let _ = WebviewWindowBuilder::new(app, "rest", rest_url(min))
+    let builder = WebviewWindowBuilder::new(app, "rest", rest_url(min, &mode))
         .title("休息提醒")
-        .inner_size(360.0, 210.0)
         .decorations(false)
         .always_on_top(true)
-        .center()
-        .build();
+        .center();
+    // fullscreen 为桌面端可用 API；否则使用固定小窗尺寸
+    let builder = if mode == "fullscreen" {
+        builder.fullscreen(true)
+    } else {
+        builder.inner_size(360.0, 210.0)
+    };
+    let _ = builder.build();
 }
 
 /// 打开/聚焦喝水提醒窗口

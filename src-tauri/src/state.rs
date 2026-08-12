@@ -258,26 +258,154 @@ fn parse_hm(s: &str) -> Option<u16> {
     }
 }
 
-impl AppState {
-    /// 当前是否处于“工作时段”。
-    /// - work_hours_only 关闭时恒为 true（不限时段）；
-    /// - 开启时按 work_start/work_end 判断，支持跨午夜（如 22:00–06:00）；
-    /// - 时段解析失败时退化为 true，避免因配置异常而永久静默。
-    pub fn in_work_hours(&self) -> bool {
-        if !self.settings.work_hours_only {
-            return true;
+/// 纯函数：给定“是否仅工作时段”“起止”“当前分钟”，判定是否处于工作时段。
+/// - only=false 恒为 true（不限时段）；
+/// - 支持跨午夜（如 22:00–06:00）；
+/// - 时段解析失败时退化为 true，避免因配置异常而永久静默。
+pub fn in_work_hours_at(only: bool, start: &str, end: &str, cur: u16) -> bool {
+    if !only {
+        return true;
+    }
+    match (parse_hm(start), parse_hm(end)) {
+        (Some(s), Some(e)) => {
+            if s <= e {
+                cur >= s && cur <= e
+            } else {
+                cur >= s || cur <= e
+            }
         }
+        _ => true,
+    }
+}
+
+impl AppState {
+    /// 当前是否处于“工作时段”（基于本机当前时间）。
+    pub fn in_work_hours(&self) -> bool {
         let now = chrono::Local::now();
         let cur = (now.hour() * 60 + now.minute()) as u16;
-        match (parse_hm(&self.settings.work_start), parse_hm(&self.settings.work_end)) {
-            (Some(s), Some(e)) => {
-                if s <= e {
-                    cur >= s && cur <= e
-                } else {
-                    cur >= s || cur <= e
-                }
-            }
-            _ => true,
+        in_work_hours_at(
+            self.settings.work_hours_only,
+            &self.settings.work_start,
+            &self.settings.work_end,
+            cur,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_state() -> AppState {
+        AppState {
+            user_state: UserState::Idle,
+            daily: DailyData::default(),
+            settings: Settings::default(),
+            segment_start_ms: 0,
+            rest_fired_for_segment: false,
+            snooze_until_ms: 0,
+            rest_segment_start_ms: 0,
+            current_date: today_string(),
+            water_deferred: false,
+            last_save_ms: 0,
         }
+    }
+
+    #[test]
+    fn on_activity_idle_to_working() {
+        let mut s = make_state();
+        s.on_activity(1000);
+        assert_eq!(s.user_state, UserState::Working);
+        assert_eq!(s.segment_start_ms, 1000);
+    }
+
+    #[test]
+    fn tick_transitions_to_resting_after_inactivity() {
+        let mut s = make_state();
+        s.user_state = UserState::Working;
+        s.segment_start_ms = 1000;
+        s.daily.last_activity_ms = 1000; // 休息阈值默认 10 分钟
+        let old = s.tick(1000 + 11 * 60_000); // 超过 10 分钟无活动
+        assert_eq!(old, None);
+        assert_eq!(s.user_state, UserState::Resting);
+    }
+
+    #[test]
+    fn tick_stays_working_within_rest_threshold() {
+        let mut s = make_state();
+        s.user_state = UserState::Working;
+        s.segment_start_ms = 1000;
+        s.daily.last_activity_ms = 1000;
+        let old = s.tick(1000 + 5 * 60_000); // 仅 5 分钟
+        assert_eq!(old, None);
+        assert_eq!(s.user_state, UserState::Working);
+    }
+
+    #[test]
+    fn close_work_segment_records_duration() {
+        let mut s = make_state();
+        s.user_state = UserState::Working;
+        s.segment_start_ms = 1_000_000;
+        s.close_work_segment(1_000_000 + 90_000); // 90 秒
+        assert_eq!(s.daily.work_segments.len(), 1);
+        assert_eq!(s.daily.work_segments[0].duration_sec, 90);
+        assert_eq!(s.segment_start_ms, 0);
+    }
+
+    #[test]
+    fn current_segment_ms_returns_zero_when_not_working() {
+        let mut s = make_state();
+        s.segment_start_ms = 5_000_000;
+        // Idle 状态，即使有 segment_start 也不计时
+        assert_eq!(s.current_segment_ms(5_000_000 + 10_000), 0);
+    }
+
+    #[test]
+    fn current_segment_ms_counts_working() {
+        let mut s = make_state();
+        s.user_state = UserState::Working;
+        s.segment_start_ms = 5_000_000;
+        assert_eq!(s.current_segment_ms(5_000_000 + 30_000), 30_000);
+    }
+
+    #[test]
+    fn daily_rollover_returns_old_and_resets() {
+        let mut s = make_state();
+        s.current_date = "2000-01-01".to_string();
+        s.daily.date = "2000-01-01".to_string();
+        s.user_state = UserState::Working;
+        s.segment_start_ms = 1000;
+        let old = s.tick(now_ms());
+        let old = old.expect("应返回归档的旧日数据");
+        assert_eq!(old.date, "2000-01-01");
+        assert_eq!(s.current_date, today_string());
+        assert_eq!(s.user_state, UserState::Idle);
+        assert_eq!(s.segment_start_ms, 0);
+    }
+
+    #[test]
+    fn in_work_hours_at_normal_range() {
+        assert!(in_work_hours_at(false, "09:00", "18:00", 720));
+        assert!(in_work_hours_at(true, "09:00", "18:00", 720)); // 12:00
+        assert!(in_work_hours_at(true, "09:00", "18:00", 540)); // 09:00 边界
+        assert!(in_work_hours_at(true, "09:00", "18:00", 1080)); // 18:00 边界
+        assert!(!in_work_hours_at(true, "09:00", "18:00", 480)); // 08:00
+        assert!(!in_work_hours_at(true, "09:00", "18:00", 1200)); // 20:00
+    }
+
+    #[test]
+    fn in_work_hours_at_cross_midnight() {
+        assert!(in_work_hours_at(true, "22:00", "06:00", 1380)); // 23:00
+        assert!(in_work_hours_at(true, "22:00", "06:00", 120)); // 02:00
+        assert!(in_work_hours_at(true, "22:00", "06:00", 1320)); // 22:00 边界
+        assert!(in_work_hours_at(true, "22:00", "06:00", 360)); // 06:00 边界
+        assert!(!in_work_hours_at(true, "22:00", "06:00", 720)); // 12:00
+    }
+
+    #[test]
+    fn in_work_hours_at_invalid_falls_back() {
+        // 解析失败时退化为 true（不限时段），避免永久静默
+        assert!(in_work_hours_at(true, "bad", "18:00", 720));
+        assert!(in_work_hours_at(true, "09:00", "bad", 720));
     }
 }
