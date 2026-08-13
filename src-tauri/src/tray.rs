@@ -30,7 +30,10 @@ pub fn build_tray(app: &App) -> tauri::Result<()> {
                 commands::open_main(app);
                 commands::goto_settings(app);
             }
-            "quit" => app.exit(0),
+            "quit" => {
+                commands::flush_and_save(app);
+                app.exit(0);
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

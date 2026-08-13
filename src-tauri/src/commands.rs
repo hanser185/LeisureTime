@@ -262,3 +262,14 @@ pub fn open_data_folder() {
     let path = storage::data_dir();
     let _ = std::process::Command::new("explorer").arg(path).spawn();
 }
+
+/// 退出前闭合当前未落盘的工作/休息片段并保存当日数据
+pub fn flush_and_save(app: &AppHandle) {
+    let store = app.state::<Arc<Store>>();
+    let daily = {
+        let mut s = store.0.lock().unwrap();
+        s.flush();
+        s.daily.clone()
+    };
+    storage::save_daily(&daily);
+}
