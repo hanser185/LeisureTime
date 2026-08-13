@@ -183,13 +183,12 @@ pub fn skip_rest(app: AppHandle) {
     s.water_deferred = false;
 }
 
-/// 稍后提醒：重置工作计时（从当前重新算阈值），并抑制稍后期内的重复触发
+/// 稍后提醒：仅抑制稍后期内的重复触发，到点后沿用当前工作片段重新判定
 #[tauri::command]
 pub fn snooze_rest(app: AppHandle, minutes: u64) {
     let store = app.state::<Arc<Store>>();
     let mut s = store.0.lock().unwrap();
     let now = now_ms();
-    s.segment_start_ms = now;
     s.rest_fired_for_segment = false;
     s.last_rest_prompt_ms = now;
     s.snooze_until_ms = now + minutes * 60_000;
