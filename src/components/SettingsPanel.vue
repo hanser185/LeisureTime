@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onBeforeUnmount } from 'vue'
 import { useAppStore } from '../stores/appStore'
 import PrivacyNotice from './PrivacyNotice.vue'
 import type { Settings } from '../types'
@@ -9,9 +9,34 @@ const form = ref<Settings>({ ...(store.settings as Settings) })
 const showPath = ref(false)
 const path = ref('')
 
-async function save() {
-  await store.saveSettings({ ...form.value })
+// 保存反馈：按钮“保存中”禁用态 + 成功/失败浮层提示
+const saving = ref(false)
+const toast = ref<{ type: 'success' | 'error'; text: string } | null>(null)
+let toastTimer: number | undefined
+
+function showToast(type: 'success' | 'error', text: string) {
+  toast.value = { type, text }
+  if (toastTimer) window.clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => (toast.value = null), 2500)
 }
+
+async function save() {
+  if (saving.value) return
+  saving.value = true
+  try {
+    await store.saveSettings({ ...form.value })
+    showToast('success', '设置已保存')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    showToast('error', '保存失败：' + msg)
+  } finally {
+    saving.value = false
+  }
+}
+
+onBeforeUnmount(() => {
+  if (toastTimer) window.clearTimeout(toastTimer)
+})
 function resetDefault() {
   form.value = {
     work_threshold_min: 60,
@@ -112,7 +137,14 @@ async function showDataPath() {
       <div v-if="showPath" class="path">{{ path }}</div>
     </div>
 
-    <button class="btn-primary save" @click="save">保存设置</button>
+    <button class="btn-primary save" :disabled="saving" @click="save">
+      {{ saving ? '保存中…' : '保存设置' }}
+    </button>
+
+    <!-- 保存反馈浮层 -->
+    <transition name="toast-fade">
+      <div v-if="toast" class="toast" :class="toast.type">{{ toast.text }}</div>
+    </transition>
   </div>
 </template>
 
@@ -168,5 +200,38 @@ async function showDataPath() {
 }
 .save {
   margin-top: 4px;
+}
+.save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+/* 保存反馈浮层：固定底部居中，不随滚动消失 */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+.toast.success {
+  background: #2e7d32;
+}
+.toast.error {
+  background: #c62828;
+}
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
 }
 </style>
