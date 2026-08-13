@@ -166,6 +166,8 @@ impl AppState {
                     ..Default::default()
                 },
             );
+            self.daily.last_activity_ms = now;
+            self.daily.last_water_prompt_ms = now;
             self.current_date = today;
             self.user_state = UserState::Idle;
             self.segment_start_ms = 0;
@@ -458,6 +460,8 @@ mod tests {
         assert_eq!(s.current_date, today_string());
         assert_eq!(s.user_state, UserState::Idle);
         assert_eq!(s.segment_start_ms, 0);
+        assert_eq!(s.daily.last_activity_ms, s.last_save_ms);
+        assert_eq!(s.daily.last_water_prompt_ms, s.last_save_ms);
     }
 
     #[test]
