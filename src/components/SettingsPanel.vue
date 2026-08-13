@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, onBeforeUnmount, watch } from 'vue'
 import { useAppStore } from '../stores/appStore'
 import PrivacyNotice from './PrivacyNotice.vue'
 import type { Settings } from '../types'
@@ -8,6 +8,14 @@ const store = useAppStore()
 const form = ref<Settings>({ ...(store.settings as Settings) })
 const showPath = ref(false)
 const path = ref('')
+
+// 暂停状态由顶部按钮/托盘在外部修改，保存设置时不应覆盖当前值
+watch(
+  () => store.settings?.paused,
+  (paused) => {
+    if (typeof paused === 'boolean') form.value.paused = paused
+  },
+)
 
 // 保存反馈：按钮“保存中”禁用态 + 成功/失败浮层提示
 const saving = ref(false)

@@ -109,7 +109,10 @@ export const useAppStore = defineStore('app', {
       }
     },
     applyTheme() {
-      const t = this.settings?.theme ?? 'system'
+      let t = this.settings?.theme ?? 'system'
+      if (t === 'system' && typeof window !== 'undefined' && window.matchMedia) {
+        t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+      }
       document.documentElement.dataset.theme = t
     },
   },
