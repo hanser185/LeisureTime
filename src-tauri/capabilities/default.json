@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "休息提醒助手默认能力：核心 API（事件/窗口/应用）+ 弹窗关闭与销毁权限",
+  "windows": ["main", "rest", "water"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy"
+  ]
+}
