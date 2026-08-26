@@ -8,6 +8,8 @@ let navOff: (() => void) | null = null
 let timers: number[] = []
 let initialized = false
 let initSeq = 0 // 代际令牌：dispose 时自增，使在途的异步 init 失效，杜绝重复注册
+let mediaQuery: MediaQueryList | null = null
+let systemThemeHandler: (() => void) | null = null
 
 export const useAppStore = defineStore('app', {
   state: () => ({
@@ -62,6 +64,11 @@ export const useAppStore = defineStore('app', {
       initSeq++ // 让任何进行中的 init 失效
       navOff?.()
       navOff = null
+      if (mediaQuery && systemThemeHandler) {
+        mediaQuery.removeEventListener('change', systemThemeHandler)
+      }
+      mediaQuery = null
+      systemThemeHandler = null
       timers.forEach((t) => window.clearInterval(t))
       timers = []
     },
@@ -114,6 +121,20 @@ export const useAppStore = defineStore('app', {
         t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
       }
       document.documentElement.dataset.theme = t
+      this.bindSystemTheme()
+    },
+    bindSystemTheme() {
+      if (typeof window === 'undefined' || !window.matchMedia) return
+      if (mediaQuery && systemThemeHandler) {
+        mediaQuery.removeEventListener('change', systemThemeHandler)
+      }
+      mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+      systemThemeHandler = () => {
+        if (this.settings?.theme === 'system' && mediaQuery) {
+          document.documentElement.dataset.theme = mediaQuery.matches ? 'dark' : 'light'
+        }
+      }
+      mediaQuery.addEventListener('change', systemThemeHandler)
     },
   },
 })
