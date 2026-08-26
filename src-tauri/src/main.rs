@@ -3,6 +3,7 @@
 mod activity;
 mod commands;
 mod scheduler;
+mod single_instance;
 mod state;
 mod storage;
 mod tray;
@@ -12,6 +13,10 @@ use std::sync::Arc;
 use tauri::Manager;
 
 fn main() {
+    if !single_instance::ensure_single_instance() {
+        return;
+    }
+
     let settings: Settings = storage::load_settings();
     let today = state::today_string();
     let daily = storage::load_daily(&today);
@@ -23,7 +28,7 @@ fn main() {
         .setup(move |app| {
             tray::build_tray(app)?;
             // 若设置了开机自启，启动时确保注册表项存在
-            let autostart = store_setup.0.lock().unwrap().settings.autostart;
+            let autostart = store_setup.lock().settings.autostart;
             if autostart {
                 commands::apply_autostart(true);
             }
@@ -58,9 +63,8 @@ fn main() {
             // 休息弹窗无论以何种方式关闭（手动跳过/稍后、倒计时自动关闭、点 X），
             // 都解除“喝水提醒让位”标记，否则当天喝水提醒会永久失效
             if window.label() == "rest" && matches!(event, tauri::WindowEvent::Destroyed) {
-                if let Ok(mut s) = window.state::<Arc<Store>>().0.lock() {
-                    s.reset_water_defer();
-                }
+                // Store::lock 可从毒化锁恢复，确保喝水让位标记一定被解除
+                window.state::<Arc<Store>>().lock().reset_water_defer();
             }
         })
         .run(tauri::generate_context!())

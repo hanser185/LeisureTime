@@ -10,9 +10,7 @@ pub fn start_listener(store: Arc<Store>) {
         let s = Arc::clone(&store);
         if let Err(e) = listen(move |_event: Event| {
             let now = now_ms();
-            if let Ok(mut st) = s.0.lock() {
-                st.on_activity(now);
-            }
+            s.lock().on_activity(now);
         }) {
             // 监听异常退出（如权限/驱动问题）：日志提示并退避重试，避免活动检测静默失效
             eprintln!("[activity] 监听失败，5s 后重试: {:?}", e);

@@ -1,4 +1,4 @@
-use chrono::Timelike;
+use chrono::{NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -62,6 +62,31 @@ impl Default for Settings {
             paused: false,
             autostart: false,
             theme: "system".into(),
+        }
+    }
+}
+
+impl Settings {
+    /// Normalize values that may come from an old or hand-edited settings file.
+    pub fn sanitize(&mut self) {
+        self.work_threshold_min = self.work_threshold_min.clamp(1, 1_440);
+        self.rest_threshold_min = self.rest_threshold_min.clamp(1, 360);
+        self.water_interval_min = self.water_interval_min.clamp(1, 1_440);
+
+        if !matches!(
+            self.reminder_mode.as_str(),
+            "toast" | "popup" | "fullscreen"
+        ) {
+            self.reminder_mode = "toast".into();
+        }
+        if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
+            self.theme = "system".into();
+        }
+        if NaiveTime::parse_from_str(&self.work_start, "%H:%M").is_err() {
+            self.work_start = "09:00".into();
+        }
+        if NaiveTime::parse_from_str(&self.work_end, "%H:%M").is_err() {
+            self.work_end = "18:00".into();
         }
     }
 }
@@ -306,12 +331,18 @@ impl Store {
     pub fn new(settings: Settings, daily: DailyData, date: String) -> Self {
         Store(Mutex::new(AppState::new(settings, daily, date)))
     }
+
+    pub fn lock(&self) -> std::sync::MutexGuard<'_, AppState> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as u64
 }
 
@@ -388,6 +419,40 @@ mod tests {
             last_rest_prompt_ms: 0,
             pause_start_ms: 0,
         }
+    }
+
+    #[test]
+    fn settings_sanitize_clamps_ranges_and_resets_enum_values() {
+        let mut s = Settings {
+            work_threshold_min: 0,
+            rest_threshold_min: 1_000,
+            water_interval_min: 0,
+            reminder_mode: "invalid".into(),
+            theme: "invalid".into(),
+            ..Settings::default()
+        };
+
+        s.sanitize();
+
+        assert_eq!(s.work_threshold_min, 1);
+        assert_eq!(s.rest_threshold_min, 360);
+        assert_eq!(s.water_interval_min, 1);
+        assert_eq!(s.reminder_mode, "toast");
+        assert_eq!(s.theme, "system");
+    }
+
+    #[test]
+    fn settings_sanitize_replaces_invalid_work_hour_strings() {
+        let mut s = Settings {
+            work_start: "bad".into(),
+            work_end: "25:99".into(),
+            ..Settings::default()
+        };
+
+        s.sanitize();
+
+        assert_eq!(s.work_start, "09:00");
+        assert_eq!(s.work_end, "18:00");
     }
 
     #[test]

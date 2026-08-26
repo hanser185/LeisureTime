@@ -23,3 +23,4 @@ default = []
 # 仅 Windows 编译：开机自启动写注册表
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }

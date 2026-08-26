@@ -53,7 +53,7 @@ fn water_url() -> WebviewUrl {
 pub fn open_rest_window(app: &AppHandle, min: u64) {
     let store = app.state::<Arc<Store>>();
     let mode = {
-        let s = store.0.lock().unwrap();
+        let s = store.lock();
         s.settings.reminder_mode.clone()
     };
     if let Some(w) = app.get_webview_window("rest") {
@@ -108,7 +108,7 @@ pub fn do_toggle_pause(app: &AppHandle) -> bool {
     let store = app.state::<Arc<Store>>();
     // ponytail: 锁内只改状态，落盘放锁外
     let settings = {
-        let mut s = store.0.lock().unwrap();
+        let mut s = store.lock();
         let paused = !s.settings.paused;
         s.set_paused(paused, now_ms());
         s.settings.clone()
@@ -119,14 +119,17 @@ pub fn do_toggle_pause(app: &AppHandle) -> bool {
 
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> Settings {
-    app.state::<Arc<Store>>().0.lock().unwrap().settings.clone()
+    app.state::<Arc<Store>>().lock().settings.clone()
 }
 
 #[tauri::command]
 pub fn save_settings(app: AppHandle, settings: Settings) {
+    let mut settings = settings;
+    settings.sanitize();
+
     let store = app.state::<Arc<Store>>();
     let autostart_changed = {
-        let mut s = store.0.lock().unwrap();
+        let mut s = store.lock();
         let changed = s.settings.autostart != settings.autostart;
         s.settings = settings.clone();
         changed
@@ -140,7 +143,7 @@ pub fn save_settings(app: AppHandle, settings: Settings) {
 
 #[tauri::command]
 pub fn get_daily(app: AppHandle) -> DailyData {
-    app.state::<Arc<Store>>().0.lock().unwrap().daily.clone()
+    app.state::<Arc<Store>>().lock().daily.clone()
 }
 
 #[tauri::command]
@@ -177,7 +180,7 @@ pub fn get_weekly(_app: AppHandle) -> Vec<serde_json::Value> {
 #[tauri::command]
 pub fn skip_rest(app: AppHandle) {
     let store = app.state::<Arc<Store>>();
-    let mut s = store.0.lock().unwrap();
+    let mut s = store.lock();
     s.rest_fired_for_segment = true;
     s.last_rest_prompt_ms = now_ms(); // 推迟下一轮提醒一个完整工作阈值，避免“跳过”后立刻再弹
     s.water_deferred = false;
@@ -187,7 +190,7 @@ pub fn skip_rest(app: AppHandle) {
 #[tauri::command]
 pub fn snooze_rest(app: AppHandle, minutes: u64) {
     let store = app.state::<Arc<Store>>();
-    let mut s = store.0.lock().unwrap();
+    let mut s = store.lock();
     let now = now_ms();
     s.rest_fired_for_segment = false;
     s.last_rest_prompt_ms = now;
@@ -200,7 +203,7 @@ pub fn record_water(app: AppHandle) {
     let store = app.state::<Arc<Store>>();
     // ponytail: 锁内只改状态并 clone，落盘放锁外，避免阻塞调度/活动线程
     let daily = {
-        let mut s = store.0.lock().unwrap();
+        let mut s = store.lock();
         s.record_water(now_hm());
         s.daily.clone()
     };
@@ -211,7 +214,7 @@ pub fn record_water(app: AppHandle) {
 #[tauri::command]
 pub fn defer_water(app: AppHandle) {
     let store = app.state::<Arc<Store>>();
-    let mut s = store.0.lock().unwrap();
+    let mut s = store.lock();
     s.defer_water();
 }
 
@@ -225,7 +228,7 @@ pub fn clear_today(app: AppHandle) {
     let store = app.state::<Arc<Store>>();
     // ponytail: 重置状态在锁内完成，删文件放锁外
     let date = {
-        let mut s = store.0.lock().unwrap();
+        let mut s = store.lock();
         let date = s.current_date.clone();
         s.reset_daily_and_tracking(now_ms());
         date
@@ -242,7 +245,7 @@ pub fn data_path() -> String {
 #[tauri::command]
 pub fn get_status(app: AppHandle) -> serde_json::Value {
     let store = app.state::<Arc<Store>>();
-    let s = store.0.lock().unwrap();
+    let s = store.lock();
     let state = match s.user_state {
         UserState::Idle => "idle",
         UserState::Working => "working",
@@ -267,7 +270,7 @@ pub fn open_data_folder() {
 pub fn flush_and_save(app: &AppHandle) {
     let store = app.state::<Arc<Store>>();
     let daily = {
-        let mut s = store.0.lock().unwrap();
+        let mut s = store.lock();
         s.flush();
         s.daily.clone()
     };

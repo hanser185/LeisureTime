@@ -10,10 +10,7 @@ pub fn run_scheduler(app: AppHandle, store: Arc<Store>) {
         std::thread::sleep(std::time::Duration::from_secs(1));
         let now = now_ms();
 
-        let mut s = match store.0.lock() {
-            Ok(g) => g,
-            Err(_) => continue,
-        };
+        let mut s = store.lock();
         // 跨日归档
         if let Some(old) = s.tick(now) {
             storage::save_daily(&old);

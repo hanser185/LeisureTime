@@ -10,8 +10,12 @@ pub fn build_tray(app: &App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "退出应用", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&toggle, &settings, &quit])?;
 
-    TrayIconBuilder::with_id("main-tray")
-        .icon(app.default_window_icon().unwrap().clone())
+    let mut builder = TrayIconBuilder::with_id("main-tray");
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+
+    builder
         .menu(&menu)
         .show_menu_on_left_click(false)
         .tooltip("休息提醒助手")
