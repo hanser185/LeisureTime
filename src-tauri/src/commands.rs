@@ -251,8 +251,13 @@ pub fn record_water(app: AppHandle) {
 #[tauri::command]
 pub fn defer_water(app: AppHandle) {
     let store = app.state::<Arc<Store>>();
-    let mut s = store.lock();
-    s.defer_water();
+    // ponytail: 与 record_water 一致，锁内改状态并 clone，落盘放锁外，避免 defer 后退出丢失
+    let daily = {
+        let mut s = store.lock();
+        s.defer_water();
+        s.daily.clone()
+    };
+    storage::save_daily(&daily);
 }
 
 #[tauri::command]

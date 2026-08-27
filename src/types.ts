@@ -24,7 +24,6 @@ export interface DailyData {
   rest_segments: Segment[]
   water_intakes: string[]
   rest_count: number
-  rest_reminders: number
   last_activity_ms: number
   last_water_prompt_ms: number
 }

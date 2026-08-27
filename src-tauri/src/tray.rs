@@ -7,8 +7,9 @@ use tauri::{App, Manager};
 
 /// 构建系统托盘与右键菜单
 pub fn build_tray(app: &App) -> tauri::Result<()> {
-    // 初始文案与当前暂停态一致，之后每次切换动态更新
-    let paused = app.state::<Arc<Store>>().lock().settings.paused;
+    let store = app.state::<Arc<Store>>();
+    // 通过锁获取最新的暂停状态，确保初始文案与后端状态完全一致
+    let paused = store.lock().settings.paused;
     let toggle = MenuItem::with_id(
         app,
         "toggle",
@@ -24,7 +25,7 @@ pub fn build_tray(app: &App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "退出应用", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&toggle, &settings, &quit])?;
 
-    // 克隆一份句柄供菜单事件回调里更新文案
+    // toggle_item 克隆供菜单事件回调里实时更新文案
     let toggle_item = toggle.clone();
 
     let mut builder = TrayIconBuilder::with_id("main-tray");
@@ -63,7 +64,14 @@ pub fn build_tray(app: &App) -> tauri::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { .. } = event {
+            // 仅响应“左键单击抬起”打开主窗口；
+            // 若不区分按键，右键也会被此处理器拦截，导致右键菜单无法弹出
+            if let TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
                 commands::open_main(tray.app_handle());
             }
         })

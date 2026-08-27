@@ -32,7 +32,6 @@ pub fn run_scheduler(app: AppHandle, store: Arc<Store>) {
         // 休息提醒：连续工作达阈值且本片段未提醒、未处于稍后期、且处于工作时段
         if in_work && reached && !s.rest_fired_for_segment && not_snoozed && in_wh {
             s.rest_fired_for_segment = true;
-            s.daily.rest_reminders += 1;
             s.daily.rest_count += 1; // 每次弹出休息提醒计为一次休息（修复“休息次数恒为 0”）
             s.last_rest_prompt_ms = now;
             s.water_deferred = true;

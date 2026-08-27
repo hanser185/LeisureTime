@@ -27,7 +27,6 @@ pub struct DailyData {
     pub rest_segments: Vec<Segment>,
     pub water_intakes: Vec<String>, // "09:15"
     pub rest_count: u32,
-    pub rest_reminders: u32,
     pub last_activity_ms: u64,
     pub last_water_prompt_ms: u64,
 }
@@ -248,6 +247,12 @@ impl AppState {
             }
             UserState::Resting => {
                 if since < rest_th {
+                    self.close_rest_segment(now);
+                    self.user_state = UserState::Working;
+                    self.segment_start_ms = now;
+                    self.rest_fired_for_segment = false;
+                } else {
+                    // 超过休息阈值仍未主动恢复，视为完成休息片段，转回工作状态
                     self.close_rest_segment(now);
                     self.user_state = UserState::Working;
                     self.segment_start_ms = now;
