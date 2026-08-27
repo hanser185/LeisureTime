@@ -51,6 +51,10 @@ function mmss(ms: number): string {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
 
+// 真实休息回合数：以已闭合的休息片段计，与“提醒弹出次数”（rest_reminders）区分——
+// 被提醒但没休息不应算作休息了一次
+const realRestCount = computed(() => store.daily?.rest_segments.length ?? 0)
+
 // 时间轴：工作/休息片段按开始时间排序
 const segments = computed(() => {
   const d = store.daily
@@ -85,7 +89,7 @@ const segments = computed(() => {
         <div class="lbl">累计工作</div>
       </div>
       <div class="card metric">
-        <div class="num">{{ store.daily?.rest_count ?? 0 }}</div>
+        <div class="num">{{ realRestCount }}</div>
         <div class="lbl">休息次数</div>
       </div>
       <div class="card metric">

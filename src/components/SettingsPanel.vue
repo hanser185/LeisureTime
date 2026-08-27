@@ -32,7 +32,9 @@ async function save() {
   if (saving.value) return
   saving.value = true
   try {
-    await store.saveSettings({ ...form.value })
+    // 后端会 sanitize（钳制超界/非法值），以返回值为准回填表单，保持 UI 与实际生效一致
+    const saved = await store.saveSettings({ ...form.value })
+    form.value = { ...saved }
     showToast('success', '设置已保存')
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -55,7 +57,8 @@ function resetDefault() {
     work_hours_only: false,
     work_start: '09:00',
     work_end: '18:00',
-    paused: false,
+    // 恢复默认不改变当前暂停态，避免“恢复默认+保存”静默恢复检测
+    paused: form.value.paused,
     autostart: false,
     theme: 'system',
   }
@@ -77,18 +80,18 @@ async function showDataPath() {
       <div class="cap">检测与提醒</div>
       <label class="item">
         <span>工作时长阈值（分钟）</span>
-        <input type="number" min="1" v-model.number="form.work_threshold_min" />
+        <input type="number" min="1" max="1440" v-model.number="form.work_threshold_min" />
       </label>
       <label class="item">
         <span>休息判定时长（分钟）</span>
-        <input type="number" min="1" v-model.number="form.rest_threshold_min" />
+        <input type="number" min="1" max="360" v-model.number="form.rest_threshold_min" />
       </label>
       <label class="item">
         <span>提醒方式</span>
         <select v-model="form.reminder_mode">
-          <option value="toast">系统通知（Toast）</option>
-          <option value="popup">弹窗</option>
-          <option value="fullscreen">全屏遮罩（首版回退弹窗）</option>
+          <option value="toast">角落轻提醒（右下角·不抢焦点）</option>
+          <option value="popup">居中弹窗</option>
+          <option value="fullscreen">全屏遮罩</option>
         </select>
       </label>
     </div>
@@ -101,7 +104,7 @@ async function showDataPath() {
       </label>
       <label class="item" v-if="form.water_enabled">
         <span>喝水间隔（分钟）</span>
-        <input type="number" min="1" v-model.number="form.water_interval_min" />
+        <input type="number" min="1" max="1440" v-model.number="form.water_interval_min" />
       </label>
     </div>
 
