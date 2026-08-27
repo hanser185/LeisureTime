@@ -7,8 +7,9 @@ import { useAppStore } from '../stores/appStore'
 const store = useAppStore()
 const remain = ref(20)
 let timer: number
+let done = false // 防抖：一次弹窗只记录一次操作，防止双击重复计数
 
-// 关闭弹窗：先尽力上报状态（失败不影响关闭），再关闭窗口；close 失败则强制 destroy 兜底
+// 关闭弹窗：close 失败则强制 destroy 兜底
 async function closeWindow() {
   window.clearInterval(timer)
   try {
@@ -24,6 +25,8 @@ async function closeWindow() {
 }
 
 async function drank() {
+  if (done) return
+  done = true
   try {
     await store.recordWater()
   } catch (e) {
@@ -33,6 +36,8 @@ async function drank() {
 }
 
 async function later() {
+  if (done) return
+  done = true
   // 先推迟下次喝水提醒（避免关闭后 1 秒内立即重复弹出），再关闭窗口
   try {
     await invoke('defer_water')
@@ -43,9 +48,13 @@ async function later() {
 }
 
 onMounted(() => {
+  store.syncThemeFromBackend()
   timer = window.setInterval(() => {
     remain.value -= 1
-    if (remain.value <= 0) closeWindow()
+    if (remain.value <= 0) {
+      done = true
+      closeWindow()
+    }
   }, 1000)
 })
 

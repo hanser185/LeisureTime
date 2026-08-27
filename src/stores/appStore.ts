@@ -72,10 +72,12 @@ export const useAppStore = defineStore('app', {
       timers.forEach((t) => window.clearInterval(t))
       timers = []
     },
-    async saveSettings(s: Settings) {
-      await invoke('save_settings', { settings: s })
-      this.settings = s
+    async saveSettings(s: Settings): Promise<Settings> {
+      // 后端会 sanitize（钳制超界值、修正非法枚举），以返回值为准回显，避免 UI 与实际脱节
+      const saved = await invoke<Settings>('save_settings', { settings: s })
+      this.settings = saved
       this.applyTheme()
+      return saved
     },
     async togglePause() {
       const p = (await invoke('toggle_pause')) as boolean
@@ -115,13 +117,26 @@ export const useAppStore = defineStore('app', {
         /* ignore */
       }
     },
-    applyTheme() {
-      let t = this.settings?.theme ?? 'system'
+    resolveTheme(theme?: string): 'light' | 'dark' {
+      let t = theme ?? this.settings?.theme ?? 'system'
       if (t === 'system' && typeof window !== 'undefined' && window.matchMedia) {
         t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
       }
-      document.documentElement.dataset.theme = t
+      return t === 'dark' ? 'dark' : 'light'
+    },
+    applyTheme() {
+      document.documentElement.dataset.theme = this.resolveTheme(this.settings?.theme)
       this.bindSystemTheme()
+    },
+    // 弹窗窗口不执行完整 init（避免轮询与事件叠加），仅从后端同步主题设置
+    async syncThemeFromBackend() {
+      try {
+        const s = await invoke<Settings>('get_settings')
+        if (!this.settings) this.settings = s
+        document.documentElement.dataset.theme = this.resolveTheme(s.theme)
+      } catch {
+        /* 获取失败时保持默认浅色样式 */
+      }
     },
     bindSystemTheme() {
       if (typeof window === 'undefined' || !window.matchMedia) return
