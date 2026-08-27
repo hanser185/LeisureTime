@@ -105,7 +105,12 @@ pub struct AppState {
     pub last_save_ms: u64,
     pub last_rest_prompt_ms: u64, // 上次休息提醒时刻，用于按工作阈值循环再提醒（修复“只弹一次”）
     pub pause_start_ms: u64, // 暂停起点；恢复时把时间锚点前移，避免暂停被算作无活动（修复“暂停误判休息”）
+    pub last_tick_ms: u64,   // 上次调度 tick 时刻；用于检测睡眠/休眠导致的大幅时钟前跳
 }
+
+/// 调度 tick 名义间隔为 1s；相邻 tick 差值超过该阈值视为系统睡眠/休眠恢复，
+/// 该段墙钟时间不计入工作/休息片段与各提醒基准（正常系统繁忙造成的 tick 抖动远小于此值）。
+const SUSPEND_GAP_MS: u64 = 90_000;
 
 impl AppState {
     pub fn new(settings: Settings, mut daily: DailyData, date: String) -> Self {
@@ -128,6 +133,7 @@ impl AppState {
             last_save_ms: now,
             last_rest_prompt_ms: now,
             pause_start_ms: 0,
+            last_tick_ms: now,
         }
     }
 
@@ -160,26 +166,47 @@ impl AppState {
             self.pause_start_ms = now;
         } else if self.pause_start_ms > 0 {
             let delta = now.saturating_sub(self.pause_start_ms);
-            self.daily.last_activity_ms = self.daily.last_activity_ms.saturating_add(delta);
-            self.daily.last_water_prompt_ms = self.daily.last_water_prompt_ms.saturating_add(delta);
-            self.last_rest_prompt_ms = self.last_rest_prompt_ms.saturating_add(delta);
-            if self.segment_start_ms > 0 {
-                self.segment_start_ms = self.segment_start_ms.saturating_add(delta);
-            }
-            if self.rest_segment_start_ms > 0 {
-                self.rest_segment_start_ms = self.rest_segment_start_ms.saturating_add(delta);
-            }
-            self.snooze_until_ms = self.snooze_until_ms.saturating_add(delta);
+            self.shift_anchors(delta);
             self.pause_start_ms = 0;
         }
         self.settings.paused = paused;
     }
 
+    /// 把所有时间锚点整体前移 delta：暂停恢复与睡眠/休眠间隙补偿共用，
+    /// 使这段墙钟时间既不计入工作/休息时长，也不算无活动、不推进提醒基准。
+    fn shift_anchors(&mut self, delta: u64) {
+        self.daily.last_activity_ms = self.daily.last_activity_ms.saturating_add(delta);
+        self.daily.last_water_prompt_ms = self.daily.last_water_prompt_ms.saturating_add(delta);
+        self.last_rest_prompt_ms = self.last_rest_prompt_ms.saturating_add(delta);
+        if self.segment_start_ms > 0 {
+            self.segment_start_ms = self.segment_start_ms.saturating_add(delta);
+        }
+        if self.rest_segment_start_ms > 0 {
+            self.rest_segment_start_ms = self.rest_segment_start_ms.saturating_add(delta);
+        }
+        self.snooze_until_ms = self.snooze_until_ms.saturating_add(delta);
+    }
+
     /// 每秒 tick：推进状态机；跨日返回需保存的旧日数据
     pub fn tick(&mut self, now: u64) -> Option<DailyData> {
+        let prev_tick = self.last_tick_ms;
+        self.last_tick_ms = now;
+
         if self.settings.paused {
+            // 暂停期间的时钟跳变由 set_paused 恢复时统一补偿
             return None;
         }
+
+        // 睡眠/休眠恢复检测：相邻 tick 间隔异常大，说明这段墙钟时间系统并未真正运行，
+        // 前移全部锚点剔除该间隙，避免把睡眠时长算进工作/休息片段（或误判为休息）。
+        // prev_tick == 0 表示尚无基准（测试构造或首 tick），不做补偿。
+        if prev_tick > 0 {
+            let gap = now.saturating_sub(prev_tick);
+            if gap >= SUSPEND_GAP_MS {
+                self.shift_anchors(gap);
+            }
+        }
+
         let today = today_string();
         if today != self.current_date {
             // 关闭当前未闭合片段并按日归档
@@ -418,6 +445,7 @@ mod tests {
             last_save_ms: 0,
             last_rest_prompt_ms: 0,
             pause_start_ms: 0,
+            last_tick_ms: 0,
         }
     }
 
@@ -667,5 +695,57 @@ mod tests {
         s.tick(1000 + 11 * 60_000); // 超过 10 分钟无活动，转入 Resting
         assert_eq!(s.user_state, UserState::Resting);
         assert_eq!(s.daily.rest_count, 0, "被动转入休息不应计数");
+    }
+
+    // ===== 睡眠/休眠间隙补偿回归测试 =====
+
+    #[test]
+    fn suspend_gap_does_not_inflate_work_segment() {
+        // 睡前已连续工作 30 分钟，合盖睡眠 8 小时后唤醒：
+        // 唤醒后第一次调度 tick 应剔除睡眠间隙，片段时长不膨胀
+        let mut s = make_state();
+        s.user_state = UserState::Working;
+        s.segment_start_ms = 1000;
+        s.last_tick_ms = 1000 + 30 * 60_000; // 睡前最后一次 tick：已连续工作 30 分钟
+        s.daily.last_activity_ms = s.last_tick_ms; // 睡前一刻仍在活动
+        let wake = s.last_tick_ms + 8 * 3_600_000;
+        s.tick(wake); // 唤醒后的第一次调度 tick 完成间隙补偿
+        assert_eq!(s.user_state, UserState::Working, "睡眠间隙不应计入无活动");
+        assert_eq!(
+            s.segment_start_ms,
+            wake - 30 * 60_000,
+            "工作锚点应前移剔除睡眠"
+        );
+        assert_eq!(
+            s.current_segment_ms(wake + 60_000),
+            31 * 60_000,
+            "片段时长不应包含睡眠"
+        );
+    }
+
+    #[test]
+    fn suspend_gap_does_not_trigger_false_rest() {
+        // 睡前已无活动 5 分钟，睡眠 2 小时后唤醒：等效无活动仍约 5 分钟，
+        // 不应因墙钟跳变直接判为休息（10 分钟阈值）
+        let mut s = make_state();
+        s.user_state = UserState::Working;
+        s.segment_start_ms = 1000;
+        s.daily.last_activity_ms = 4000; // 睡前已无活动 5 分钟
+        s.last_tick_ms = 9000; // 上一次 tick 在活动开始 9 秒后
+        let wake = s.last_tick_ms + 2 * 3_600_000;
+        s.tick(wake);
+        assert_eq!(s.user_state, UserState::Working, "睡眠间隙不应计入无活动");
+        assert_eq!(s.daily.last_activity_ms, wake - 5000);
+    }
+
+    #[test]
+    fn suspend_gap_below_threshold_is_ignored() {
+        // 正常系统繁忙导致的 tick 抖动（<90s）不触发锚点前移
+        let mut s = make_working_state();
+        s.last_tick_ms = 1000 + 60_000; // 与活动基准差 1 分钟
+        let now = s.last_tick_ms + 80_000; // 间隙 80 秒，低于阈值
+        s.tick(now);
+        assert_eq!(s.daily.last_activity_ms, 1000, "小抖动不应移动锚点");
+        assert_eq!(s.user_state, UserState::Working);
     }
 }

@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 pub fn apply_autostart(enable: bool) {
     use winreg::enums::*;
     use winreg::RegKey;
+    const RUN_NAME: &str = "休息提醒助手";
     if let Ok(hkcu) = RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Run", KEY_WRITE)
     {
@@ -15,23 +16,26 @@ pub fn apply_autostart(enable: bool) {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
         if enable && !exe.is_empty() {
-            let _ = hkcu.set_value("休息提醒助手", &exe);
-        } else {
-            let _ = hkcu.delete_value("休息提醒助手");
+            if let Err(e) = hkcu.set_value(RUN_NAME, &exe) {
+                eprintln!("[autostart] 写入 Run 键失败（开机自启可能未生效）: {e:?}");
+            }
+        } else if let Err(e) = hkcu.delete_value(RUN_NAME) {
+            // 值不存在属正常情况（从未开启过自启），不必告警
+            if e.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("[autostart] 删除 Run 键失败: {e:?}");
+            }
         }
+    } else {
+        eprintln!("[autostart] 打开注册表 Run 键失败（权限不足？），开机自启设置未生效");
     }
 }
 #[cfg(not(windows))]
 pub fn apply_autostart(_enable: bool) {}
 
 /// 根据 dev/prod 环境返回前端路由地址（Tauri 2 的窗口 URL 需为 WebviewUrl）
-/// mode="fullscreen" 时追加 &mode=fullscreen，供前端渲染全屏遮罩样式
+/// 始终携带 mode 参数，供前端区分 toast（角落轻提醒）/popup/fullscreen 渲染样式
 fn rest_url(min: u64, mode: &str) -> WebviewUrl {
-    let q = if mode == "fullscreen" {
-        format!("?min={}&mode=fullscreen", min)
-    } else {
-        format!("?min={}", min)
-    };
+    let q = format!("?min={}&mode={}", min, mode);
     if cfg!(debug_assertions) {
         WebviewUrl::External(
             tauri::Url::parse(&format!("http://localhost:5173/#/rest{}", q)).unwrap(),
@@ -48,8 +52,8 @@ fn water_url() -> WebviewUrl {
     }
 }
 
-/// 打开/聚焦休息提醒窗口（带已工作分钟数）
-/// reminder_mode=fullscreen 时创建覆盖全屏的遮罩窗口；否则为居中小窗。
+/// 打开/聚焦休息提醒窗口（带已连续工作分钟数）
+/// reminder_mode：toast=右下角免打扰轻提醒（不抢焦点）；popup=居中弹窗；fullscreen=全屏遮罩
 pub fn open_rest_window(app: &AppHandle, min: u64) {
     let store = app.state::<Arc<Store>>();
     let mode = {
@@ -59,18 +63,42 @@ pub fn open_rest_window(app: &AppHandle, min: u64) {
     if let Some(w) = app.get_webview_window("rest") {
         let _ = w.show();
         let _ = w.set_focus();
+        // 已存在的弹窗无法改 URL 参数，用事件把最新参数推给前端刷新显示与倒计时
+        let _ = app.emit_to(
+            "rest",
+            "rest-params",
+            serde_json::json!({ "min": min, "mode": mode }),
+        );
         return;
     }
     let builder = WebviewWindowBuilder::new(app, "rest", rest_url(min, &mode))
         .title("休息提醒")
         .decorations(false)
-        .always_on_top(true)
-        .center();
-    // fullscreen 为桌面端可用 API；否则使用固定小窗尺寸
-    let builder = if mode == "fullscreen" {
+        .always_on_top(true);
+    let builder = if mode == "toast" {
+        // 右下角免打扰：不抢焦点、不进任务栏；取不到显示器信息则退化为居中
+        const W: f64 = 320.0;
+        const H: f64 = 170.0;
+        const MARGIN: f64 = 16.0;
+        let b = builder
+            .inner_size(320.0, 170.0)
+            .focused(false)
+            .skip_taskbar(true);
+        match app.primary_monitor() {
+            Ok(Some(monitor)) => {
+                // position 使用物理像素
+                let sf = monitor.scale_factor();
+                let size = monitor.size();
+                let x = size.width as f64 - W * sf - MARGIN * sf;
+                let y = size.height as f64 - H * sf - MARGIN * sf;
+                b.position(x, y)
+            }
+            _ => b.center(),
+        }
+    } else if mode == "fullscreen" {
         builder.fullscreen(true)
     } else {
-        builder.inner_size(360.0, 210.0)
+        builder.center().inner_size(360.0, 210.0)
     };
     let _ = builder.build();
 }
@@ -122,8 +150,10 @@ pub fn get_settings(app: AppHandle) -> Settings {
     app.state::<Arc<Store>>().lock().settings.clone()
 }
 
+/// 保存设置：后端 sanitize 后生效并落盘，同时把消毒后的值返回给前端回显，
+/// 避免超界输入被静默钳制后 UI 与实际值脱节。
 #[tauri::command]
-pub fn save_settings(app: AppHandle, settings: Settings) {
+pub fn save_settings(app: AppHandle, settings: Settings) -> Settings {
     let mut settings = settings;
     settings.sanitize();
 
@@ -139,6 +169,7 @@ pub fn save_settings(app: AppHandle, settings: Settings) {
     if autostart_changed {
         apply_autostart(settings.autostart);
     }
+    settings
 }
 
 #[tauri::command]
@@ -147,14 +178,20 @@ pub fn get_daily(app: AppHandle) -> DailyData {
 }
 
 #[tauri::command]
-pub fn get_weekly(_app: AppHandle) -> Vec<serde_json::Value> {
+pub fn get_weekly(app: AppHandle) -> Vec<serde_json::Value> {
     use chrono::{Duration, Local};
     let today = Local::now().date_naive();
+    // 今日直接用内存实时数据（磁盘要等 30s 周期落盘，读文件会滞后），历史日期才读文件
+    let live_today = app.state::<Arc<Store>>().lock().daily.clone();
     let mut out = Vec::new();
     for i in 0..7 {
         let d = today - Duration::days(i);
         let s = d.format("%Y-%m-%d").to_string();
-        let daily = storage::load_daily(&s);
+        let daily = if i == 0 {
+            live_today.clone()
+        } else {
+            storage::load_daily(&s)
+        };
         let work_min: u64 = daily
             .work_segments
             .iter()

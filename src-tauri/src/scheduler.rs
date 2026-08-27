@@ -36,7 +36,8 @@ pub fn run_scheduler(app: AppHandle, store: Arc<Store>) {
             s.daily.rest_count += 1; // 每次弹出休息提醒计为一次休息（修复“休息次数恒为 0”）
             s.last_rest_prompt_ms = now;
             s.water_deferred = true;
-            let min = s.settings.work_threshold_min;
+            // 弹窗展示真实连续分钟数（阈值只是触发下限，实际可能已超出）
+            let min = (s.current_segment_ms(now) / 60_000).max(1);
             drop(s);
             open_rest_window(&app, min);
             continue;
