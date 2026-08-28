@@ -86,6 +86,13 @@ onUnmounted(() => window.clearInterval(timer))
   text-align: center;
   background: linear-gradient(135deg, #eff6ff, #ecfeff);
   color: #0c4a6e;
+  /* 隐藏滚动条，保留滚动功能 */
+  overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.water::-webkit-scrollbar {
+  display: none;
 }
 [data-theme='dark'] .water {
   background: linear-gradient(135deg, #0f172a, #0c4a6e);

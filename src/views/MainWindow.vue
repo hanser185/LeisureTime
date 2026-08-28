@@ -112,6 +112,12 @@ onUnmounted(() => {
   flex: 1;
   overflow-y: auto;
   padding: 16px;
+  /* 隐藏内部滚动条，保留滚动功能 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.body::-webkit-scrollbar {
+  display: none;
 }
 .modal-mask {
   position: fixed;

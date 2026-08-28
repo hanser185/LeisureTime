@@ -112,7 +112,7 @@ pub fn open_water_window(app: &AppHandle) {
     }
     let _ = WebviewWindowBuilder::new(app, "water", water_url())
         .title("喝水提醒")
-        .inner_size(320.0, 170.0)
+        .inner_size(320.0, 190.0)
         .decorations(false)
         .always_on_top(true)
         .center()

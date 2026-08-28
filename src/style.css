@@ -35,6 +35,29 @@ body {
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  /* 隐藏页面级滚动条，保留滚动功能 */
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+body::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Edge */
+}
+
+/* 仅在必要区域显示细滚动条（如长列表） */
+.thin-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  display: block;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  border-radius: 3px;
+}
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted) transparent;
 }
 button {
   font-family: inherit;
